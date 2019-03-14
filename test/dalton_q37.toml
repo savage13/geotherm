@@ -4,30 +4,31 @@
 #    mantle: Clues from joint interpretation of global velocity and
 #    attenuation models, Lithos, 120(1), 160–172.
 #
-heat_flow = 37e-3 # mW/m^2
-ts        = 25.0  # Celcius
+type      = "Continental"
+heat_flow = "37e-3 W/m^2"
+ts        = "25.0 C"
 
 [[layers]]
-top    = 0.0      # km
-bottom = 10.0     # km
-rh     = 1.48e-6  # uW/m^3
-k      = 2.5      # W/mK
+top    = "0.0 km"
+bottom = "10.0 km"
+rh     = "1.48e-6 W/m^3"
+k      = "2.5 W/mK"
 
 [[layers]]
-top    = 10.0
-bottom = 40.0
-rh     = 0.25e-6
-k      = 2.5
+top    = "10.0 km"
+bottom = "40.0 km"
+rh     = "0.25e-6 W/m^3"
+k      = "2.5 W/mK"
 
 [[layers]]
-top    = 40.0
-bottom = 120.0
-rh     = 0.01e-6
-k      = 3.0
+top    = "40.0 km"
+bottom = "120.0 km"
+rh     = "0.01e-6 W/m^3"
+k      = "3.0 W/mK"
 
 [[layers]]
-top    = 120.0
-bottom = 400.0
-rh     = 0.050e-6
-k      = 3.0
+top    = "120.0 km"
+bottom = "400.0 km"
+rh     = "0.050e-6 W/m^3"
+k      = "3.0 W/mK"
 

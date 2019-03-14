@@ -314,6 +314,27 @@ impl Adiabat {
     }
 }
 
+/// Temperature at Depth
+pub trait TZ {
+    fn tz(&self, z: Meter<f64>) -> Kelvin<f64>;
+}
+
+impl TZ for Adiabat {
+    fn tz(&self, z: Meter<f64>) -> Kelvin<f64> {
+        self.t(z)
+    }
+}
+impl TZ for OceanicGeotherm {
+    fn tz(&self, z: Meter<f64>) -> Kelvin<f64> {
+        self.t(z)
+    }
+}
+impl TZ for ContinentalGeotherm {
+    fn tz(&self, z: Meter<f64>) -> Kelvin<f64> {
+        self.t(z).unwrap()
+    }
+}
+
 /// Temperature dependent thermal conductivity
 ///
 /// From Jaupart and Mareschal 1999, Eqn 3
@@ -325,19 +346,76 @@ pub fn kT(t: Kelvin<f64>, _z: Meter<f64>) -> Conductivity<f64> {
 /// Chapman
 pub fn kcrust(t: Kelvin<f64>, z: Meter<f64>, k0: f64, b: f64) -> Conductivity<f64> {
     use dim::si::WPMK;
-    let z = z.value_unsafe;
+    let z = z.value_unsafe / 1e3;
     let t = t.value_unsafe - 273.15;
-    let k = k0.powf(1.0 + 1.5e-3 * z/1e3) / (1.0 * b * t);
+    let k = k0.powf(1.0 + 1.5e-3 * z) / (1.0 * b * t);
     k * WPMK
 }
+
+/// Thermal conductivity calculation, relevant to the upper crust
+///
+/// ## Arguments
+/// - t : Temperature in Kelvin
+/// - z : Depth in meters
+///
+/// ## Method
+/// Conductivity is calculated using the equation below where `t` Temperature is in Celcius and
+/// `z` is in meters.  Values are automatically converted to the correct units
+///
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\dfrac{1+cz}{1+bz}" display="block">
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\frac{1+cz}{1+bz}" display="block">
+/// <mrow> <mrow> <mi>k</mi> <mo>⁢</mo> <mrow> <mo stretchy="false">(</mo> <mi>T</mi> <mo>,</mo> <mi>z</mi> <mo stretchy="false">)</mo> </mrow> </mrow> <mo>=</mo> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>⁢</mo> <mfrac> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>c</mi> <mo>⁢</mo> <mi>z</mi> </mrow> </mrow> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>b</mi> <mo>⁢</mo> <mi>T</mi> </mrow> </mrow> </mfrac> </mrow> </mrow></math></math>
+///
+/// where
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k_{0}=3.0\;Wm^{-1}K^{-1}" display="inline"> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>=</mo> <mrow> <mpadded width="+2.8pt"> <mn>3.0</mn> </mpadded> <mo>⁢</mo> <mi>W</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
+///
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="b=1.5\times 10^{-3}\;K^{-1}" display="inline"> <mrow> <mi>b</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
+///
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="c=1.5\times 10^{-3}\;km^{-1}" display="inline"> <mrow> <mi>c</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <mi>k</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
+///
+/// 
+/// ## Reference
+/// Chapman, D. Thermal gradients in the continental crust. Geological Society,
+///    London, Special Publications, 24(1):63–70, 1986.
+///
 pub fn kcrust1(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
     kcrust(t, z, 3.0, 1.5e-3)
 }
+
+/// Thermal conductivity calculation, relevant to the lower crust
+///
+/// ## Arguments
+/// - t : Temperature in Kelvin
+/// - z : Depth in meters
+///
+/// ## Method
+/// Conductivity is calculated using the equation below where `t` Temperature is in Celcius and
+/// `z` is in meters.  Values are automatically converted to the correct units
+///
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\dfrac{1+cz}{1+bz}" display="block">
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\frac{1+cz}{1+bz}" display="block">
+/// <mrow> <mrow> <mi>k</mi> <mo>⁢</mo> <mrow> <mo stretchy="false">(</mo> <mi>T</mi> <mo>,</mo> <mi>z</mi> <mo stretchy="false">)</mo> </mrow> </mrow> <mo>=</mo> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>⁢</mo> <mfrac> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>c</mi> <mo>⁢</mo> <mi>z</mi> </mrow> </mrow> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>b</mi> <mo>⁢</mo> <mi>T</mi> </mrow> </mrow> </mfrac> </mrow> </mrow></math></math>
+///
+/// where
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k_{0}=2.6\;Wm^{-1}K^{-1}" display="inline"> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>=</mo> <mrow> <mpadded width="+2.8pt"> <mn>2.6</mn> </mpadded> <mo>⁢</mo> <mi>W</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
+///
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="b=1.0\times 10^{-4}\;K^{-1}" display="inline"> <mrow> <mi>b</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
+///
+/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="c=1.5\times 10^{-3}\;km^{-1}" display="inline"> <mrow> <mi>c</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <mi>k</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
+///
+/// 
+/// ## Reference
+/// Chapman, D. Thermal gradients in the continental crust. Geological Society,
+///    London, Special Publications, 24(1):63–70, 1986.
+///
 pub fn kcrust2(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
     kcrust(t, z, 2.6, 1.0e-4)
 }
 ///
 /// Calculation of Thermal Conductivity of the Mantle determined from T and z
+///
+/// Uses Schatz and Simmons (1972) Eqs 9, 10, and 11
+///
 /// Schatz, J. F., and G. Simmons (1972), Thermal conductivity of earth 
 ///    materials at high temperatures, Journal of Geophysical Research, 
 ///    77(35), 6966–6983.
@@ -703,9 +781,30 @@ mod tests {
         assert_eq!(*t, 1000.0 * dim::si::M);
     }
     #[test]
+    fn geotherm_either() {
+        use crate::GeothermBuilder;
+        let txt = r#"
+tp  = "1300 C"
+age = "100.0 Ma"
+"#;
+        let b : GeothermBuilder = toml::from_str(&txt).unwrap();
+    }
+    
+    #[test]
+    fn geotherm_ocean() {
+        use toml;
+        use crate::OceanicGeothermBuilder;
+        let txt = r#"
+tp  = "1300 C"
+age = "100.0 Ma"
+"#;
+        let b : OceanicGeothermBuilder = toml::from_str(&txt).unwrap();
+        let _g = b.build();
+    }
+    #[test]
     fn geotherm_toml() {
         use toml;
-        use crate::GeothermBuilder;
+        use crate::ContinentalGeothermBuilder;
         let txt = r#"
 heat_flow = "51.0e-3 W/m^2"
 ts       =  "25.0 C"
@@ -728,7 +827,7 @@ bottom = "500.0 km"
 rh     = "0.03e-6 W/m^3"
 k      = "Jaupart_Mareschal_1999_Eq3"
 "#;
-        let b : GeothermBuilder = toml::from_str(&txt).unwrap();
+        let b : ContinentalGeothermBuilder = toml::from_str(&txt).unwrap();
         let _g = b.build();
     }
 }
@@ -747,12 +846,32 @@ struct GeothermLayerBuilder {
     k: KTypeB,
 }
 #[derive(Debug, Deserialize)]
-pub struct GeothermBuilder {
+pub struct ContinentalGeothermBuilder {
     ts: KelvinB,
     heat_flow: HeatFluxB,
     layers: Vec<GeothermLayerBuilder>,
 }
-impl GeothermBuilder {
+
+#[derive(Debug, Deserialize)]
+pub struct OceanicGeothermBuilder {
+    tp: KelvinB,
+    age: SecondB,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum GeothermBuilder {
+    Continental(ContinentalGeothermBuilder),
+    Ocean(OceanicGeothermBuilder),
+}
+
+impl OceanicGeothermBuilder {
+    pub fn build(self) -> OceanicGeotherm {
+        OceanicGeotherm::from_tp_and_age(*self.tp, *self.age)
+    }
+}
+
+impl ContinentalGeothermBuilder {
     pub fn build(self) -> ContinentalGeotherm {
         use dim::si::{WPM2, WPMK, M, WPM3};
         let km = 1000.0 * M;
@@ -840,8 +959,8 @@ macro_rules! unit_serde {
                 if items.len() == 1 {
                     return Err(UnitParseError::NoUnits);
                 }
-                let v : f64 = items[0].parse()?;
-                let out = match items[1] {
+                let v : f64 = items[0].trim().parse()?;
+                let out = match items[1].trim() {
                     $(
                         $unit  => { Ok( $name ( $conv(v) ) ) }
                     ),*
@@ -883,3 +1002,9 @@ unit_serde!(HeatGenerationB, HeatGenerationBVisitor, HeatGeneration<f64>,
             "W/m^3", {|v| v * dim::si::WPM3 });
 unit_serde!(HeatFluxB, HeatFluxBVisitor, HeatFlux<f64>,
             "W/m^2", {|v| v * dim::si::WPM2 });
+unit_serde!(SecondB, SecondBVisitor, Second<f64>,
+            "s", {|v| v * dim::si::S },
+            "yr", {|v| v * crate::YEAR },
+            "Ma", {|v| v * crate::MA },
+            "Ga", {|v| v * crate::GA }
+);

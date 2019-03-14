@@ -3,7 +3,10 @@ use std::env;
 use std::fs::read_to_string;
 use toml;
 use dimensioned as dim;
-use geotherm2::GeothermBuilder as Builder;
+use geotherm::GeothermBuilder as Builder;
+use geotherm::{OceanicGeotherm, ContinentalGeotherm};
+
+use dim::si::{Meter,Kelvin};
 
 fn arange(x0: f64, dx: f64, x1: f64) -> Vec<f64> {
     let mut x = vec![];
@@ -61,17 +64,37 @@ convert!(Kilometer, "km",   dim::si::Meter<f64>,  { |x| x / 1e3 } );
 pub const KM: dim::si::Meter<f64> = dim::si::SI { value_unsafe: dim::si::M.value_unsafe * 1000.0,
                                                   _marker: std::marker::PhantomData, };
 
+enum Kind {
+    O(OceanicGeotherm),
+    C(ContinentalGeotherm),
+}
+
+
+
+impl TZ for Kind {
+    fn tz(&self, z: Meter<f64>) -> Kelvin<f64> {
+        match self {
+            Kind::O(g) => g.tz(z),
+            Kind::C(g) => g.tz(z),
+        }
+    }
+}
+
+use geotherm::TZ;
 fn main() {
     let args: Vec<String> = env::args().collect();
     let par = read_to_string(&args[1]).unwrap();
     let g : Builder = toml::from_str(&par).unwrap();
-    let g = g.build();
+    let g = match g {
+        Builder::Continental(x) => Kind::C(x.build()),
+        Builder::Ocean(x) => Kind::O(x.build()),
+    };
 
     let z : Vec<f64> = args[2].split("/").map(|x| x.parse().unwrap()).collect();
 
     for zi in arange(z[0],z[1],z[2]).iter() {
         let zi = *zi * KM;
-        let t = g.t(zi).unwrap();
+        let t = g.tz(zi);
         let c = Celsius::from(t);
         let p = zi.pressure();
         let bars = Bar::from(p);
