@@ -1,0 +1,11 @@
+[package]
+name = "geotherm"
+version = "0.1.0"
+authors = ["Brian Savage <savage@uri.edu>"]
+edition = "2018"
+
+[dependencies]
+dimensioned = "0.7.0"
+special-fun = "0.1.6"
+toml = "0.4"
+serde = {version = "1.0.60", features = ["derive"]}

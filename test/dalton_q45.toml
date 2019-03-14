@@ -1,0 +1,27 @@
+heat_flow = 45e-3 # mW/m^2
+ts        = 25.0  # Celcius
+
+[[layers]]
+top    = 0.0      # km
+bottom = 10.0     # km
+rh     = 1.48e-6  # uW/m^3
+k      = 2.5      # W/mK
+
+[[layers]]
+top    = 10.0
+bottom = 40.0
+rh     = 0.25e-6
+k      = 2.5
+
+[[layers]]
+top    = 40.0
+bottom = 120.0
+rh     = 0.01e-6
+k      = 3.0
+
+[[layers]]
+top    = 120.0
+bottom = 400.0
+rh     = 0.084e-6
+k      = 3.0
+

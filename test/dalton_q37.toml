@@ -1,0 +1,33 @@
+# Geotherm Model from Dalton and Faul, 2010, Table 1
+#
+# Dalton, C. A., and U. H. Faul (2010), The oceanic and cratonic upper
+#    mantle: Clues from joint interpretation of global velocity and
+#    attenuation models, Lithos, 120(1), 160–172.
+#
+heat_flow = 37e-3 # mW/m^2
+ts        = 25.0  # Celcius
+
+[[layers]]
+top    = 0.0      # km
+bottom = 10.0     # km
+rh     = 1.48e-6  # uW/m^3
+k      = 2.5      # W/mK
+
+[[layers]]
+top    = 10.0
+bottom = 40.0
+rh     = 0.25e-6
+k      = 2.5
+
+[[layers]]
+top    = 40.0
+bottom = 120.0
+rh     = 0.01e-6
+k      = 3.0
+
+[[layers]]
+top    = 120.0
+bottom = 400.0
+rh     = 0.050e-6
+k      = 3.0
+

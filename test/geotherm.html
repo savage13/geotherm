@@ -1,0 +1,251 @@
+<html>
+  <head>
+  </head>
+  <body>
+    <canvas id="plot" width=300 height=300></canvas>
+    <div>
+      <span class="slidecontainer">
+        <input type="range" min="0" max="100" value="37" class="slider" id="qs">
+      </span>
+      <span id="qs_value">37e-6</span>
+      Heat Flow
+    </div>
+    <div>
+      <span class="slidecontainer">
+        <input type="range" min="0" max="100" value="48" class="slider" id="rhuc">
+      </span>
+      <span id="rhuc_value">1.48e-6</span>
+      rH Upper Crust
+    </div>
+    <div>
+      <span class="slidecontainer">
+        <input type="range" min="0" max="100" value="25" class="slider" id="rhlc">
+      </span>
+      <span id="rhlc_value">1.48e-6</span>
+      rH Lower Crust
+    </div>
+    <div>
+      <span class="slidecontainer">
+        <input type="range" min="0" max="100" value="50" class="slider" id="rhli">
+      </span>
+      <span id="rhli_value">1.48e-6</span>
+      rH Lithosphere
+    </div>
+    <div>
+      <span class="slidecontainer">
+       <input type="range" min="0" max="100" value="50" class="slider" id="rhas">
+      </span>
+      <span id="rhas_value">1.48e-6</span>
+      rH Asthenosphere
+    </div>
+
+
+</body>
+    <script>
+    function setup_slider(name,value, func) {
+        var slider = document.getElementById(name);
+        var output = document.getElementById(value);
+        // Display the default slider value
+        output.innerHTML = func(slider.value); //(1 + slider.value / 100).toFixed(3) + "e-6";
+
+        // Update the current slider value (each time you drag the slider handle)
+        slider.oninput = function() {
+            output.innerHTML = func(this.value); //(1 + this.value / 100).toFixed(3) + "e-6";
+            update();
+        }
+    }
+
+setup_slider("qs","qs_value", function(v) { return (1.0 * v).toFixed(1) + "e-3"; })
+
+    var slider = document.getElementById("rhuc");
+var output = document.getElementById("rhuc_value");
+output.innerHTML = (1 + slider.value / 100).toFixed(3) + "e-6"; // Display the default slider value
+
+// Update the current slider value (each time you drag the slider handle)
+slider.oninput = function() {
+    var output = document.getElementById("rhuc_value");
+    output.innerHTML = (0 + this.value / 100).toFixed(3) + "e-6";
+    update();
+}
+
+    var slider = document.getElementById("rhlc");
+var output = document.getElementById("rhlc_value");
+output.innerHTML = (0 + slider.value / 100).toFixed(3) + "e-6"; // Display the default slider value
+
+// Update the current slider value (each time you drag the slider handle)
+slider.oninput = function() {
+    var output = document.getElementById("rhlc_value");
+    output.innerHTML = (0 + this.value / 100).toFixed(3) + "e-6";
+    update();
+}
+
+    var slider = document.getElementById("rhli");
+var output = document.getElementById("rhli_value");
+output.innerHTML = (0 + slider.value / 100).toFixed(3) + "e-6"; // Display the default slider value
+
+// Update the current slider value (each time you drag the slider handle)
+slider.oninput = function() {
+    var output = document.getElementById("rhli_value");
+    output.innerHTML = (0 + this.value / 100).toFixed(3) + "e-6";
+    update();
+}
+
+    var slider = document.getElementById("rhas");
+var output = document.getElementById("rhas_value");
+output.innerHTML = (0 + slider.value / 1000).toFixed(3) + "e-6"; // Display the default slider value
+
+// Update the current slider value (each time you drag the slider handle)
+slider.oninput = function() {
+    var output = document.getElementById("rhas_value");
+    output.innerHTML = (0 + this.value / 1000).toFixed(3) + "e-6";
+    update();
+}
+
+    function canvas() {
+        var _canvas = document.getElementById("plot");
+        var ctx = _canvas.getContext("2d");
+        return ctx;
+    }
+    function draw_bbox() {
+        var ctx = canvas();
+        ctx.beginPath();
+        ctx.moveTo(  0,   0);
+        ctx.lineTo(  0, 300);
+        ctx.lineTo(300, 300);
+        ctx.lineTo(300,   0);
+        ctx.lineTo(  0,   0);
+        ctx.stroke();
+    }
+function adiabat(Tp,z0,z1) {
+    var T = [];
+    var g = 9.8;
+    alpha = 2.9e-5;
+    cp = 1350;
+    T.push( Tp * ( 1.0 + alpha * g * z0 / cp ));
+    T.push( Tp * ( 1.0 + alpha * g * z1 / cp ));
+    return [[z0,z1],T]
+}
+
+function geotherm() {
+    var rhuc_slider = document.getElementById("rhuc");
+    var rhlc_slider = document.getElementById("rhlc");
+    var rhli_slider = document.getElementById("rhli");
+    var rhas_slider = document.getElementById("rhas");
+    var qs_slider   = document.getElementById("qs");
+    var rhuc = (0 + rhuc_slider.value / 100) * 1e-6;
+    var rhlc = (0 + rhlc_slider.value / 100) * 1e-6;
+    var rhli = (0 + rhli_slider.value / 100) * 1e-6;
+    var rhas = (0 + rhas_slider.value / 1000) * 1e-6;
+    var qs   = qs_slider.value * 1e-3;
+    var h  = [41e3/3., 41e3/3, 41e3/3, 400e3-41e3, 0.0];
+    var k  = [2.5,2.5,2.9,3.8,3.0];
+    var rH = [rhuc, rhlc, rhli, rhas];
+    //rH = [0.5e-6*0.60, 0.5e-6 *0.34, 0.5e-6*0.06, 0.0019e-, 0.0];
+//    alert(qs);
+    var z  = [0.0,    0.0, 0.0, 0.0, 0.0];
+    var q  = [qs, 0.0, 0.0, 0.0, 0.0];
+    var T  = [25.0, 0.0, 0.0, 0.0, 0.0];
+    var n = 4;
+    
+    for(var i = 0; i < n; i++) {
+        T[i+1] = T[i] + q[i]/k[i] * h[i] - rH[i]/(2*k[i]) * h[i]*h[i];
+        q[i+1] = q[i] - rH[i]*h[i];
+        z[i+1] = z[i] + h[i];
+    }
+    var zz = [];
+    var tt = [];
+    for(var zi = 10e3; zi < 400e3; zi += 10e3) {
+        zz.push(zi);
+        var ti = 0.0;
+        for(var i = 0; i < n; i++) {
+            if(zi >= z[i]) {
+                var dz = zi - z[i] ;
+                ti = T[i] + q[i]/k[i] * dz - rH[i]/(2*k[i]) * dz*dz;
+            }
+        }
+        tt.push(ti);
+    }
+    return [zz,tt];
+}
+function scale(v,vmin,vmax, size, buf) {
+    return buf + (v - vmin)*(size-buf*2)/(vmax-vmin);
+}
+
+function update() {
+    var ctx = canvas();
+    ctx.clearRect(0,0,300,300);
+    draw_bbox();
+    var width = 300;
+    var height = 300;
+
+    var zt = geotherm();
+    var z = zt[0];
+    var t = zt[1];
+    var tmin = 0.0;
+    var tmax = 1500.0;
+    var zmin = 0.0;
+    var zmax = 400.0;
+    var buf = 20.0;
+
+    // x-axis
+    ctx.beginPath();
+    var x0 = scale(tmin, tmin, tmax, width,  buf);
+    var y0 = scale(zmin, zmax, zmin, height, buf);
+    var x1 = scale(tmax, tmin, tmax, width,  buf);
+    var y1 = scale(zmax, zmax, zmin, height, buf);
+    ctx.moveTo(x0, height - y0);
+    ctx.lineTo(x1, height - y0);
+    ctx.stroke();
+
+    ctx.font = "12px Helvetica";
+    for(var i = 0; i < 1500; i+=200) {
+        var xi = scale(i, tmin, tmax, width, buf);
+        ctx.fillText(i, xi, y0+5);
+    }
+
+    // y-axis
+    ctx.beginPath();
+    ctx.moveTo(x0,height - y0);
+    ctx.lineTo(x0,height - y1)
+    ctx.stroke();
+
+    ctx.font = "12px Helvetica";
+    for(var i = 0; i <= 425; i+= 50) {
+        var yi = scale(i, zmax, tmin, height, buf);
+        ctx.fillText(i, x0-15, height - yi);
+    }
+
+    ctx.beginPath()
+    for(var i = 0; i < z.length; i++) {
+        var xi = scale(t[i], tmin,tmax, width, buf);
+        var yi = scale(z[i]/1e3, zmax,zmin, height, buf);
+        if(i == 0) {
+            ctx.moveTo(xi,height - yi);
+        } else {
+            ctx.lineTo(xi,height - yi);
+        }
+    }
+    ctx.stroke();
+
+    var zt = adiabat(1350.,0.0e3,400.0e3);
+    var z = zt[0];
+    var t = zt[1];
+
+    ctx.beginPath()
+    ctx.strokeStyle = "gray";
+    for(var i = 0; i < z.length; i++) {
+        var xi = scale(t[i], tmin,tmax, width, buf);
+        var yi = scale(z[i]/1e3, zmax,zmin, height, buf);
+        if(i == 0) {
+            ctx.moveTo(xi,height - yi);
+        } else {
+            ctx.lineTo(xi,height - yi);
+        }
+    }
+    ctx.stroke();
+
+}
+update();
+
+  </script>
+</html>
