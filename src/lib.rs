@@ -1,27 +1,120 @@
+//! Geotherm Calculator for the Crust and Mantle
+//!
+//! ```rust
+//! use dimensioned::si::{M,K};
+//!
+//! let g = geotherm::Geotherm::from_file("test/oceanic_100Ma.toml").unwrap();
+//! assert_eq!(g.t(0.0 * M).unwrap(), 273.15 * K);
+//! assert_eq!(g.t(100e3 * M).unwrap(), 1328.8354705757051 * K);
+//!
+//! let ad = geotherm::Adiabat::from_tp((1300.0 + 273.15) * K);
+//! assert_eq!(ad.t(0.0 * M).unwrap(),   (1300.0 + 273.15) * K);
+//! assert_eq!(ad.t(100e3 * M).unwrap(),  1606.290193479815 * K);
+//! ```
+//!
+//! ## Refernces
+//!  - Chapman, D. (1986), Thermal gradients in the continental crust, Geological Society, Lon- don, Special Publications, 24(1), 63–70.
+//!  - Faul, U. H., and I. Jackson (2005), The seismological signature of temperature and grain size variations in the upper mantle, Earth Planet. Sci. Lett., 234(1-2), 119–134.
+//!  - Jaupart, C., and J. Mareschal (1999), The thermal structure and thickness of continental roots, in Developments in Geotectonics, vol. 24, pp. 93–114, Elsevier.
+//!  - Schatz, J. F., and G. Simmons (1972), Thermal conductivity of earth materials at high temperatures, Journal of Geophysical Research, 77(35), 6966–6983.
+
+
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
 
 #[macro_use]
 extern crate dimensioned as dim;
-use special_fun::FloatSpecial;
 
 use serde::Deserialize;
+
+pub mod erf;
+use erf::ErrorFunction;
+
+/// Create a simple Unit Newtype for doing Unit Conversions
+///
+/// Allows simple unit conversion of units of the same type.
+///   This is really only useful for displaying a value in alternative
+///   units.  The underlying base unit/type is wrapped in a NewType and only converted
+///   when the value is requested either using Display, Debug, or directly using
+///   `val`.  The underlying base unit can be accessed through `deref`.
+///
+/// ## Arguments
+///  - New Unit Type
+///  - Unit Abbreviation
+///  - Underlying Base Unit
+///  - Converson from base unit to New Unit Type
+///
+/// ## Example
+///
+/// ```rust
+/// use dimensioned as dim;
+/// use dim::si::{K,Kelvin};
+/// use geotherm::convert;
+///
+/// convert!(Celsius, "C", Kelvin<f64>, { |x| x - 273.15 } );
+///
+/// let t_in_k = 273.15 * K;
+/// let t_in_c = Celsius::from(t_in_k);
+/// assert_eq!(t_in_c.val(), 0.0); // Get value
+/// assert_eq!(t_in_k, *t_in_c);   // Get base type using deref
+/// ```
+#[macro_export]
+macro_rules! convert {
+    ($name:ident, $abbrev:expr, $base:ty, $conv:block) => {
+        pub struct $name ( $base );
+
+        impl $name {
+            #[inline]
+            pub fn val(&self) -> f64 {
+                let v = $conv(self.0.value_unsafe);
+                v
+            }
+        }
+        impl From<$base> for $name {
+            #[inline]
+            fn from(thing: $base) -> Self {
+                $name ( thing )
+            }
+        }
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                self.val().fmt(f)?;
+                write!(f, " {}", $abbrev)
+            }
+        }
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                self.val().fmt(f)?;
+                write!(f, " {}", $abbrev)
+            }
+        }
+        impl std::ops::Deref for $name {
+            type Target = $base;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+    };
+}
 
 macro_rules! C {
     ($v: expr) => {{
         Celsius::new($v)
     }};
 }
-
+/// A Year in Seconds
 pub const YEAR: Second<f64> = SI { value_unsafe: dim::si::DAY.value_unsafe * 365.24,
                                    _marker: std::marker::PhantomData, };
+/// A Billon Years in Seconds
 pub const GA: Second<f64> = SI { value_unsafe: YEAR.value_unsafe * 1e9,
                                    _marker: std::marker::PhantomData, };
+/// A Millon Years in Seconds
 pub const MA: Second<f64> = SI { value_unsafe: YEAR.value_unsafe * 1e6,
                                    _marker: std::marker::PhantomData, };
 
 
 use dim::si::{self,SI,Meter,Kelvin,Second};
+
 derived!(si, SI: HeatGeneration = Watt / Meter3);
 derived!(si, SI: Conductivity = Watt / Meter / Kelvin);
 derived!(si, SI: HeatFlux = Watt / Meter2 );
@@ -32,13 +125,13 @@ derived!(si, SI: CoefficientThermalExpansion = Unitless / Kelvin );
 derived!(si, SI: SpecificHeat = Joule / Kilogram / Kelvin );
 
 #[derive(Debug)]
-pub enum KType {
+enum KType {
     Constant(Conductivity<f64>),
     Function(fn(Kelvin<f64>, Meter<f64>) -> Conductivity<f64>),
 }
 
 #[derive(Debug)]
-pub struct ContinentalLayer {
+struct ContinentalLayer {
     pub zt : Meter<f64>,
     pub zb : Meter<f64>,
     pub rh : HeatGeneration<f64>,
@@ -51,12 +144,62 @@ pub struct ContinentalLayer {
     pub tb : Kelvin<f64>,
 }
 
-
+/// Continental Geotherm Calculator
+///
+/// ## Example
+///
+/// ```rust
+/// use dimensioned::si::{M,W,K,M2,M3};
+/// let km = 1e3 * M;
+///
+/// let kcrust    = 2.5 * W/(M*K);
+/// let kmantle   = 3.0 * W/(M*K);
+/// let t_surface = 273.15 * K;
+/// let q_surface = 79e-3 * W/M2;
+///
+/// let mut g = geotherm::ContinentalGeotherm::new(t_surface, q_surface);
+/// g.add_layer(11.2  * km, kcrust,  3.00e-6 * W/M3);
+/// g.add_layer(27.8  * km, kcrust,  1.00e-6 * W/M3);
+/// g.add_layer(211.0 * km, kmantle, 0.03e-6 * W/M3);
+///
+/// assert_eq!(g.t(0.0   * M).unwrap(), 273.15 * K);
+/// assert_eq!(g.t(100e3 * M).unwrap(), 1241.3476666666668 * K);
+///```
+///
+/// ## Method
+///
+/// Construction of a continental geother with depth based on
+///  Faul and Jackson (2005) and Chapman (1986)
+///
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>T</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>=</mo><msub><mi>T</mi><mi>i</mi></msub><mo>+</mo><mfrac><msub><mi>q</mi><mi>i</mi></msub><msub><mi>k</mi><mi>i</mi></msub></mfrac><mi>&#x394;</mi><mi>z</mi><mo>-</mo><mfrac><mi>A</mi><mrow><mn>2</mn><msub><mi>k</mi><mi>i</mi></msub></mrow></mfrac><mi>&#x394;</mi><msup><mi>z</mi><mn>2</mn></msup></math>
+///
+/// and
+///  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>q</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>=</mo><msub><mi>q</mi><mi>i</mi></msub><mo>-</mo><mi>A</mi><mi>&#x394;</mi><mi>z</mi></math>
+///
+/// where
+///
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mi>i</mi></msub></math> is the Temperature at the top a layer
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub></math> is the Temperature at the bottom of the layer
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>q</mi><mi>i</mi></msub></math> is the Heat flow at the top of the layer
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>q</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub></math> is the heat flow at the bottom of the layer
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>k</mi><mi>i</mi></msub></math> is the Thermal Conductivity within the layer and is assumed constant
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>A</mi></math> is the Heat Generation within the layer
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>&#x394;</mi><mi>z</mi></math> is the thickness of the layer
+/// ## Refernces
+///   Chapman, D. (1986), Thermal gradients in the continental crust, Geological Society, Lon- don, Special Publications, 24(1), 63–70.
+///
+///   Faul, U. H., and I. Jackson (2005), The seismological signature of temperature and grain size variations in the upper mantle, Earth Planet. Sci. Lett., 234(1-2), 119–134.
+///
 #[derive(Debug)]
 pub struct ContinentalGeotherm {
+    /// Continental Layers to compute the geotherm
     layers: Vec<ContinentalLayer>,
+    /// Surface Heat floe
     heat_flow: HeatFlux<f64>,
-    ts: Kelvin<f64>
+    /// Surface Temperature
+    ts: Kelvin<f64>,
+    /// Mantle Potential Temperature
+    tp: Kelvin<f64>,
 }
 
 //pub fn q_in_layer(z: Length, zt: Length, qt: HeatFlux, rh: HeatGeneration) -> HeatFlux {
@@ -64,8 +207,8 @@ pub struct ContinentalGeotherm {
 //}
 
 impl ContinentalLayer {
-    /// Create a new Continental Layer between the Top and bottom depths `zt` and `zb`,
-    /// with Conductivity `k` and Internal Heat Generation `rh`
+    /// Create a new Continental Layer between the Top and bottom depths `zt`
+    /// and `zb`, with Conductivity `k` and Internal Heat Generation `rh`
     ///
     pub fn new<KT: Into<Kelvin<f64>>>(zt: Meter<f64>, zb: Meter<f64>,
                                       k: KType, rh: HeatGeneration<f64>,
@@ -86,10 +229,10 @@ impl ContinentalLayer {
     ///
     /// <!-- begin MathToWeb --><!-- (your LaTeX) $T_b = T_t + \dfrac{q_t}{k}\Delta z - \dfrac{\rho H}{2k}\Delta z^2$ --><math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><msub><mi>T</mi><mi>b</mi></msub><mo>=</mo><msub><mi>T</mi><mi>t</mi></msub><mo>+</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><msub><mi>q</mi><mi>t</mi></msub></mrow><mi>k</mi></mfrac></mrow></mstyle><mi>&#x00394;</mi><mi>z</mi><mo>-</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><mi>&#x003C1;</mi><mi>H</mi></mrow><mrow><mn>2</mn><mi>k</mi></mrow></mfrac></mrow></mstyle><mi>&#x00394;</mi><msup><mi>z</mi><mn>2</mn></msup></mrow></math><!-- end MathToWeb -->
     ///
-    pub fn t(&self, z: Meter<f64>) -> Option<Kelvin<f64>> {
+    pub fn t(&self, z: Meter<f64>) -> Result<Kelvin<f64>,GeothermError> {
         use dim::si::WPMK;
         if ! self.within(z) {
-            return None;
+            return Err(GeothermError::InvalidDepth);
         }
         let tt = self.tt;
         let qt = self.qt;
@@ -98,7 +241,7 @@ impl ContinentalLayer {
             KType::Constant(v) => v,
             KType::Function(fun) => fun(tt, z),
         };
-        Some( tt + (qt * z0) / kv - self.rh * z0 * z0/ (2.0*kv) )
+        Ok( tt + (qt * z0) / kv - self.rh * z0 * z0/ (2.0*kv) )
     }
     /// Determine with depth `z` is within the layer
     fn within(&self, z: Meter<f64>) -> bool {
@@ -110,11 +253,11 @@ impl ContinentalLayer {
     ///
     /// <!-- begin MathToWeb --><!-- (your LaTeX) $q_b = q_t - \rho H \Delta z$ --><math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><msub><mi>q</mi><mi>b</mi></msub><mo>=</mo><msub><mi>q</mi><mi>t</mi></msub><mo>-</mo><mi>&#x003C1;</mi><mi>H</mi><mi>&#x00394;</mi><mi>z</mi></mrow></math><!-- end MathToWeb -->
     ///
-    pub fn q(&self, z: Meter<f64>) -> Option<HeatFlux<f64>> {
+    pub fn q(&self, z: Meter<f64>) -> Result<HeatFlux<f64>, GeothermError> {
         if ! self.within(z) {
-            return None;
+            return Err(GeothermError::InvalidDepth);
         }
-        Some( self.qt - self.rh * (z - self.zt) )
+        Ok( self.qt - self.rh * (z - self.zt) )
     }
     /// Set the Top Temperature `tt` and Heat Flux, `qt`
     ///
@@ -129,22 +272,37 @@ impl ContinentalLayer {
 }
 
 impl ContinentalGeotherm {
-    /// Create an empty Continental Geotherm
+    /// Create an empty Continental Geotherm with surface temperature `ts`
+    ///  and a surface `heat_flow`
+    ///
+    /// To properly compute the temperature within the geotherm
+    /// layers need to be added using either `add_layer` or `add_layer_kfun`
+    ///
     pub fn new<KT: Into<Kelvin<f64>>>(ts: KT, heat_flow: HeatFlux<f64>) -> Self {
-        Self { layers: vec![], heat_flow, ts: ts.into() }
+        Self { layers: vec![], heat_flow, ts: ts.into(), tp: C!(1300.0).into(), }
+    }
+    /// Set the Mantle Potential Temperature associated with the Geotherm
+    ///
+    /// Temperatures exceeding the `Adiabat`, set by the Mantle Potential Temperature
+    ///    will be set to the Adiabatic Temperature at that depth, or
+    ///
+    /// `T = min(T_geotherm, T_adiabat)`
+    pub fn set_tp<KT: Into<Kelvin<f64>>>(&mut self, tp: KT) {
+        self.tp = tp.into();
     }
     /// Get a reference to the ContinentalLayer which contains depth `z`
-    fn z_to_layer<'a> (&'_ self, z: Meter<f64>) -> Option<&'_ ContinentalLayer> {
+    fn z_to_layer<'a> (&'_ self, z: Meter<f64>) -> Result<&'_ ContinentalLayer, GeothermError> {
         for layer in self.layers.iter() {
             if layer.within(z) {
-                return Some(layer)
+                return Ok(layer)
             }
         }
-        None
+        Err(GeothermError::InvalidDepth)
     }
-    /// Add a Layer to the ContinentalGeotherm
+    /// Add a Layer with a `thickness`, conductivity `k` and Internal Heat
+    ///   Generation `rH`.
     ///
-    ///
+    /// Conductivity within the layer is constant.
     pub fn add_layer(&mut self, thickness: Meter<f64>, k: Conductivity<f64>, rH: HeatGeneration<f64>) {
         let zb = if let Some(bot) = self.layers.last() { bot.zb } else { 0.0 * dim::si::M  };
         let layer =
@@ -155,6 +313,11 @@ impl ContinentalGeotherm {
         };
         self.push(layer);
     }
+    /// Add a Layer with a `thickness`,  Internal Heat Generation `rH`,
+    ///   and Conductivity defined by a function
+    ///
+    /// Conductivity within the layer is constant. To produce a gradient in
+    ///   conductivity, multiple thin layers can be added
     pub fn add_layer_kfun(&mut self, thickness: Meter<f64>,
                           rH: HeatGeneration<f64>,
                           kfun: fn(Kelvin<f64>, Meter<f64>) -> Conductivity<f64>) {
@@ -166,37 +329,41 @@ impl ContinentalGeotherm {
             ContinentalLayer::new(zb, zb + thickness, KType::Function(kfun), rH, self.ts, self.heat_flow)
         };
         self.push(layer);
-        
     }
 
     /// Add a Layer to the bottom of the ContinentalGeotherm
     ///
-    /// If layers exist and the bottom layer has the bottom temperature and heat flow
-    /// defined, set the top temperature and heat flow of the added layer to match
-    /// the layer above (boundary condition) and compute the new layers bottom temperature
-    /// and heat flow
-    pub fn push(&mut self, layer: ContinentalLayer) {
+    /// Typically layers are added using `add_layer` or `add_layer_kfun`
+    ///
+    /// If layers exist and the bottom layer has the bottom temperature and
+    /// heat flow defined, set the top temperature and heat flow of the
+    /// added layer to match the layer above (boundary condition) and compute
+    /// the new layers bottom temperature and heat flow
+    ///
+    fn push(&mut self, layer: ContinentalLayer) {
         self.layers.push(layer);
     }
     /// Compute the temperature at of the geotherm at a depth `z`
     ///
-    pub fn t(&self, z: Meter<f64>) -> Option<Kelvin<f64>> {
-        if let Some(layer) = self.z_to_layer(z) {
-            let tg = layer.t(z).unwrap();
-            let abat = Adiabat::from_tp(C!(1300.0));
-            let ta = abat.t(z);
-            let tg = if tg > ta { ta } else { tg };
-            return Some(tg);
-        }
-        None
-    }
-    /// Compute the temperature at of the geotherm at a depth `z`
+    /// Depth, `z`, values outside the defined range return `None`
+    ///  otherwise the Temperature is returned in <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>K</mi></math>
     ///
-    pub fn q(&self, z: Meter<f64>) -> Option<HeatFlux<f64>> {
-        if let Some(layer) = self.z_to_layer(z) {
-            return layer.q(z);
-        }
-        None
+    pub fn t(&self, z: Meter<f64>) -> Result<Kelvin<f64>, GeothermError> {
+        let layer = self.z_to_layer(z)?;
+        let abat = Adiabat::from_tp(self.tp);
+        let ta = abat.t(z)?;
+        let tg = layer.t(z)?;
+        let tg = if tg > ta { ta } else { tg };
+        Ok(tg)
+    }
+    /// Compute the Heat Flow at of the geotherm at a depth `z`
+    ///
+    /// Depth, `z`, values outside the defined range return `None`
+    ///  otherwise the Heat Flow is returned in <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>W</mi><msup><mi>m</mi><mrow><mo>-</mo><mn>2</mn></mrow></msup></math>
+    ///
+    pub fn q(&self, z: Meter<f64>) -> Result<HeatFlux<f64>, GeothermError> {
+        let layer = self.z_to_layer(z)?;
+        layer.q(z)
     }
     /// Compute a full geotherm at a depth spacing of `dz`
     pub fn geotherm(&self, dz: Meter<f64>) -> Option<(Vec<Meter<f64>>,Vec<Kelvin<f64>>)> {
@@ -217,19 +384,47 @@ impl ContinentalGeotherm {
 }
 
 
-/// Oceanic Geotherm
+/// Oceanic Geotherm Calculator
+///
+/// ## Example
+///
+/// ```rust
+/// use dimensioned::si::{M,K};
+///
+/// let g = geotherm::Geotherm::from_file("test/oceanic_100Ma.toml").unwrap();
+/// assert_eq!(g.t(0.0 * M).unwrap(), 273.15 * K);
+/// assert_eq!(g.t(100e3 * M).unwrap(), 1328.8354705757051 * K);
+/// ```
+///
+/// ## Method
 ///
 /// Construction of this geotherm with depth is based on
 /// Faul and Jackson, 2005, Eqn. 17
 ///
-/// <!-- begin MathToWeb --><!-- (your LaTeX) $T(z) = T_s + (T_{ad} - T_{s}) \textrm{erf} \left( \dfrac{z}{2\sqrt{\kappa t}}\right)$ --><math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mi>T</mi><mrow><mo form="prefix">(</mo><mi>z</mi><mo form="postfix">)</mo></mrow><mo>=</mo><msub><mi>T</mi><mi>s</mi></msub><mo>+</mo><mrow><mo form="prefix">(</mo><msub><mi>T</mi><mrow><mi>a</mi><mi>d</mi></mrow></msub><mo>-</mo><msub><mi>T</mi><mi>s</mi></msub><mo form="postfix">)</mo></mrow><mstyle mathvariant="normal"><mi>e</mi><mi>r</mi><mi>f</mi></mstyle><mrow><mo rspace="0.3em" lspace="0em" stretchy="true" fence="true" form="prefix">(</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mi>z</mi><mrow><mn>2</mn><msqrt><mrow><mi>&#x003BA;</mi><mi>t</mi></mrow></msqrt></mrow></mfrac></mrow></mstyle><mo rspace="0em" lspace="0.3em" stretchy="true" fence="true" form="postfix">)</mo></mrow></mrow></math><!-- end MathToWeb -->
+/// <!--  $T(z) = T_s + (T_{ad} - T_{s}) \textrm{erf} \left( \dfrac{z}{2\sqrt{\kappa t}}\right)$ -->
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mrow><mi>T</mi><mrow><mo form="prefix">(</mo><mi>z</mi><mo form="postfix">)</mo></mrow><mo>=</mo><msub><mi>T</mi><mi>s</mi></msub><mo>+</mo><mrow><mo form="prefix">(</mo><msub><mi>T</mi><mrow><mi>a</mi><mi>d</mi></mrow></msub><mo>-</mo><msub><mi>T</mi><mi>s</mi></msub><mo form="postfix">)</mo></mrow><mstyle mathvariant="normal"><mi>e</mi><mi>r</mi><mi>f</mi></mstyle><mrow><mo rspace="0.3em" lspace="0em" stretchy="true" fence="true" form="prefix">(</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mi>z</mi><mrow><mn>2</mn><msqrt><mrow><mi>&#x003BA;</mi><mi>t</mi></mrow></msqrt></mrow></mfrac></mrow></mstyle><mo rspace="0em" lspace="0.3em" stretchy="true" fence="true" form="postfix">)</mo></mrow></mrow></math>
 ///
+/// where
+///
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mi>s</mi></msub></math> is the surface Temperature
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mrow><mi>a</mi><mi>d</mi></mrow></msub></math> is the Mantle Adiabatic Temperature
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>z</mi></math> is depth in meters
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>&#x3BA;</mi></math> is the Thermal Diffusivity
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>t</mi></math> is the age in seconds
+///
+///
+/// ## References
+///   Faul, U. H., and I. Jackson (2005), The seismological signature of temperature and grain size variations in the upper mantle, Earth Planet. Sci. Lett., 234(1-2), 119–134.
+///
+#[derive(Debug)]
 pub struct OceanicGeotherm {
     /// Thermal Diffusivity m^2/s
     kappa: ThermalDiffusivity<f64>,
     /// Surface Temperature
     ts: Kelvin<f64>,
+    /// Mantle Adiabat
     ad: Adiabat,
+    /// Age of the Oceanic Lithosphere
     age: Second<f64>,
 }
 
@@ -242,9 +437,11 @@ impl OceanicGeotherm {
     /// Create a new Oceanic Geotherm from a Mantle Potential Temperature `tp`
     /// and an `age` of the lithosphere
     ///
-    /// Surface Temperature is set at 0 degrees Celsius
+    /// Surface Temperature, <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mi>s</mi></msub></math>, is set to <math xmlns="http://www.w3.org/1998/Math/MathML"><mn>0</mn><mo>&#xB0;</mo><mi>C</mi></math>
     ///
-    /// Thermal Diffusivity, &#x003BA;, is set at 5e-7 m^2/s. Value is derived from the higher temperature estimate of Gibert et al., 2003, Fig. 7
+    /// Thermal Diffusivity, <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>&#x3BA;</mi></math>, is set at <math xmlns="http://www.w3.org/1998/Math/MathML"><mn>10</mn><mo>.</mo><mn>0</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>7</mn></mrow></msup><msup><mi>m</mi><mn>2</mn></msup><msup><mi>s</mi><mrow><mo>-</mo><mn>1</mn></mrow></msup></math>.
+    ///
+    /// Diffusivity value is derived from the lower temperature estimate of Gibert et al., 2003, Fig. 6.
     ///
     pub fn from_tp_and_age<KT: Into<Kelvin<f64>>>(tp: KT, age: Second<f64>) -> Self {
         use dim::si::M2PS;
@@ -255,17 +452,40 @@ impl OceanicGeotherm {
     }
     /// Compute the Temperature at a depth for an Oceanic Geotherm
     ///
-    pub fn t(&self, z: Meter<f64>) -> Kelvin<f64> {
+    pub fn t(&self, z: Meter<f64>) -> Result<Kelvin<f64>, GeothermError> {
         use dim::Sqrt;
+        if z < 0.0 * dim::si::M {
+            return Err(GeothermError::InvalidDepth);
+        }
         let v = z / (2.0 * (self.kappa * self.age).sqrt() );
         let vo = if v < 26.0 * dim::si::ONE { v.value_unsafe.erf() } else { 1.0 };
-        let dt = (self.ad.t(z) - self.ts) * vo;
+        let dt = (self.ad.t(z)? - self.ts) * vo;
         let t = self.ts + dt;
-        t
+        Ok(t)
     }
 }
 
 /// Adiabatic Temperature Gradient for Earth's Mantle
+///
+/// ## Example
+///
+/// ```rust
+/// use dimensioned::si::{M,K};
+///
+/// let ad = geotherm::Adiabat::from_tp((1300.0 + 273.15) * K);
+/// assert_eq!(ad.t(0.0 * M).unwrap(),   (1300.0 + 273.15) * K);
+/// assert_eq!(ad.t(100e3 * M).unwrap(),  1606.290193479815 * K);
+/// ```
+///
+/// ## Method
+///
+/// This follows from Faul and Jackson, 2005 Eqn. 15
+///
+/// <!-- $\dfrac{dT}{dz} = \dfrac{T_p * \alpha * g}{c_p}$ -->
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mrow><mstyle scriptlevel="0" displaystyle="true" display="block"><mrow><mfrac linethickness="1"><mrow><mi>dT</mi></mrow><mrow><mi>dz</mi></mrow></mfrac></mrow></mstyle><mo>=</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><msub><mi>T</mi><mi>p</mi></msub><mi>&#x003B1;</mi><mi>g</mi></mrow><mrow><msub><mi>c</mi><mi>p</mi></msub></mrow></mfrac></mrow></mstyle></mrow></math>
+///
+/// ## References
+///  - Faul, U. H., and I. Jackson (2005), The seismological signature of temperature and grain size variations in the upper mantle, Earth Planet. Sci. Lett., 234(1-2), 119–134.
 #[derive(Debug,Copy,Clone)]
 pub struct Adiabat {
     /// Mantle Potential Temperature (K)
@@ -283,9 +503,6 @@ impl Adiabat {
     /// Compute Adiabat from the Mantle Potential Temperature `tp`, gravity `g`
     /// Coefficient of Thermal Expansion `alpha` and Specific Heat `cp`
     ///
-    /// This follows from Faul and Jackson, 2005 Eqn. 15
-    ///
-    /// <!-- begin MathToWeb --><!-- (your LaTeX) $\dfrac{dT}{dz} = \dfrac{T_p * \alpha * g}{c_p}$ --><math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><mi>dT</mi></mrow><mrow><mi>dz</mi></mrow></mfrac></mrow></mstyle><mo>=</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><msub><mi>T</mi><mi>p</mi></msub><mi>&#x003B1;</mi><mi>g</mi></mrow><mrow><msub><mi>c</mi><mi>p</mi></msub></mrow></mfrac></mrow></mstyle></mrow></math><!-- end MathToWeb -->
     pub fn from_values<KT: Into<Kelvin<f64>>>(tp: KT,
                                               g: Acceleration<f64>,
                                               alpha: CoefficientThermalExpansion<f64>,
@@ -309,42 +526,52 @@ impl Adiabat {
                              1350.0 * J / KG / K) // Specific Heat
     }
     /// Compute the Adiabatic Temperature at a depth `z` in meters
-    pub fn t(&self, z: Meter<f64>) -> Kelvin<f64> {
-        self.tp + self.dtdz * z
-    }
-}
-
-/// Temperature at Depth
-pub trait TZ {
-    fn tz(&self, z: Meter<f64>) -> Kelvin<f64>;
-}
-
-impl TZ for Adiabat {
-    fn tz(&self, z: Meter<f64>) -> Kelvin<f64> {
-        self.t(z)
-    }
-}
-impl TZ for OceanicGeotherm {
-    fn tz(&self, z: Meter<f64>) -> Kelvin<f64> {
-        self.t(z)
-    }
-}
-impl TZ for ContinentalGeotherm {
-    fn tz(&self, z: Meter<f64>) -> Kelvin<f64> {
-        self.t(z).unwrap()
+    pub fn t(&self, z: Meter<f64>) -> Result<Kelvin<f64>,GeothermError> {
+        if z < 0.0 * dim::si::M {
+            Err(GeothermError::InvalidDepth)
+        } else {
+            Ok( self.tp + self.dtdz * z )
+        }
     }
 }
 
 /// Temperature dependent thermal conductivity
 ///
+/// ## Arguments
+/// - t : Temperature in Kelvin
+/// - z : Depth in meters
+///
+/// ## Method
 /// From Jaupart and Mareschal 1999, Eqn 3
-pub fn kT(t: Kelvin<f64>, _z: Meter<f64>) -> Conductivity<f64> {
+///
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>k</mi><mo>(</mo><mi>T</mi><mo>)</mo><mo>=</mo><mfrac><mn>1</mn><mrow><mi>a</mi><mo>+</mo><mi>b</mi><mi>T</mi></mrow></mfrac><mo>+</mo><mi>c</mi><msup><mi>T</mi><mn>3</mn></msup></math>
+///
+/// where
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>a</mi></math> = 0.174
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>b</mi></math> = 0.000265
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>c</mi></math> = <math xmlns="http://www.w3.org/1998/Math/MathML"><mn>3</mn><mo>.</mo><mn>68</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>10</mn></mrow></msup></math>
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>T</mi></math> is the temperature measured in Kelvin
+///
+/// The depth value `z` is unused in this formulation
+///
+/// ## References
+///   Jaupart, C., and J. Mareschal (1999), The thermal structure and thickness of continental roots, in Developments in Geotectonics, vol. 24, pp. 93–114, Elsevier.
+pub fn kappa_mantle_jm99(t: Kelvin<f64>, _z: Meter<f64>) -> Conductivity<f64> {
     let t = t.value_unsafe;
     let k = 1.0 / (0.174 + 0.000265 * t) + 3.68e-10 * t.powi(3);
     k * dim::si::WPMK
 }
-/// Chapman
-pub fn kcrust(t: Kelvin<f64>, z: Meter<f64>, k0: f64, b: f64) -> Conductivity<f64> {
+/// Thermal Conductivity formulation from Chapman (1986)
+///
+/// ## Arguments
+/// - t : Temperature in Kelvin
+/// - z : Depth in meters
+///
+/// ## Reference
+/// Chapman, D. Thermal gradients in the continental crust. Geological Society,
+///    London, Special Publications, 24(1):63–70, 1986.
+///
+fn kcrust(t: Kelvin<f64>, z: Meter<f64>, k0: f64, b: f64) -> Conductivity<f64> {
     use dim::si::WPMK;
     let z = z.value_unsafe / 1e3;
     let t = t.value_unsafe - 273.15;
@@ -373,12 +600,12 @@ pub fn kcrust(t: Kelvin<f64>, z: Meter<f64>, k0: f64, b: f64) -> Conductivity<f6
 ///
 /// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="c=1.5\times 10^{-3}\;km^{-1}" display="inline"> <mrow> <mi>c</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <mi>k</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
 ///
-/// 
+///
 /// ## Reference
 /// Chapman, D. Thermal gradients in the continental crust. Geological Society,
 ///    London, Special Publications, 24(1):63–70, 1986.
 ///
-pub fn kcrust1(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
+pub fn kappa_upper_crust_c86(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
     kcrust(t, z, 3.0, 1.5e-3)
 }
 
@@ -408,51 +635,71 @@ pub fn kcrust1(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
 /// Chapman, D. Thermal gradients in the continental crust. Geological Society,
 ///    London, Special Publications, 24(1):63–70, 1986.
 ///
-pub fn kcrust2(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
+pub fn kappa_lower_crust_c86(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
     kcrust(t, z, 2.6, 1.0e-4)
 }
 ///
 /// Calculation of Thermal Conductivity of the Mantle determined from T and z
 ///
+/// ## Arguments
+/// - t : Temperature in Kelvin
+/// - z : Depth in meters
+///
+/// ## Method
+///
 /// Uses Schatz and Simmons (1972) Eqs 9, 10, and 11
 ///
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>K</mi><mi>L</mi></msub><mo>=</mo><mfrac><mn>1</mn><mrow><mo>(</mo><mi>a</mi><mo>+</mo><mi>b</mi><mi>T</mi><mo>)</mo></mrow></mfrac></math>
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>K</mi><mi>R</mi></msub><mo>&#xA0;</mo><mo>=</mo><mo>&#xA0;</mo><mfenced open="{" close=""><mtable columnspacing="1.4ex" columnalign="left"><mtr><mtd><mn>0</mn></mtd><mtd><mi>T</mi><mo>&lt;</mo><mn>500</mn><mi>K</mi></mtd></mtr><mtr><mtd><mi>c</mi><mo>(</mo><mn>500</mn><mo>-</mo><mi>T</mi><mo>)</mo></mtd><mtd><mi>T</mi><mo>&#x2265;</mo><mn>500</mn><mi>K</mi></mtd></mtr></mtable></mfenced></math>
+///
+/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><msub><mi>K</mi><mi>L</mi></msub><mrow><mi>m</mi><mi>i</mi><mi>n</mi></mrow></msub><mo>=</mo><mi>d</mi><mo>(</mo><mn>1</mn><mo>+</mo><mi>z</mi><mo>)</mo></math>
+///
+///<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>k</mi><mo>(</mo><mi>T</mi><mo>,</mo><mi>z</mi><mo>)</mo><mo>=</mo><msub><mi>K</mi><mi>R</mi></msub><mo>+</mo><mtext>max</mtext><mo>(</mo><msub><mi>K</mi><mi>L</mi></msub><mo>,</mo><msub><msub><mi>K</mi><mi>L</mi></msub><mrow><mi>m</mi><mi>i</mi><mi>n</mi></mrow></msub><mo>)</mo></math>
+///
+/// where
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>a</mi><mo>=</mo><mn>7</mn><mo>.</mo><mn>409177</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>2</mn></mrow></msup><mo>&#xA0;</mo><mi>m</mi><mi>K</mi><mo>/</mo><mi>W</mi></math>
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>b</mi><mo>=</mo><mn>5</mn><mo>.</mo><mn>0191204</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>4</mn></mrow></msup><mo>&#xA0;</mo><mi>m</mi><mo>/</mo><mi>W</mi></math>
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>c</mi><mo>=</mo><mn>2</mn><mo>.</mo><mn>3</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>3</mn></mrow></msup><mo>&#xA0;</mo><mi>W</mi><mo>/</mo><mi>m</mi><msup><mi>K</mi><mn>2</mn></msup></math>
+/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>d</mi><mo>=</mo><mn>1</mn><mo>.</mo><mn>255199</mn><mi>W</mi><mo>/</mo><mi>m</mi><mi>K</mi><mo>/</mo><mo>(</mo><mn>1000</mn><mi>k</mi><mi>m</mi><mo>)</mo></math>
+///
+/// ## References
 /// Schatz, J. F., and G. Simmons (1972), Thermal conductivity of earth 
 ///    materials at high temperatures, Journal of Geophysical Research, 
 ///    77(35), 6966–6983.
 ///
-pub fn kmantle(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
+pub fn kappa_mantle_ss72(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64> {
     use dim::si::WPMK;
     let t = t.value_unsafe;
     let z = z.value_unsafe;
     // Schatz and Simmons, 1972, Eqn (9) pg 6975
     //    Temperature in Kelvin
     //    31 (calories / s C))^-1 = 7.409177e-2 (W/(m K))^-1
-    //    0.21 (calories / s C))^-1 = 5.0191204e-4 (W/(m K))^-1
+    //    0.21 (calories / s ))^-1 = 5.0191204e-4 (W/m )^-1
     let a = 7.4091778e-2;
     let b = 5.0191204e-4;
     let kl = 1.0/(a + b * t);
     // Schatz and Simmons, 1972, Eqn (10)
     //    Temperature in Kelvin
     //    (W / (m K)) / (calories / s C) = 418.4
-    //    5.5e-6 (calories / s C) = 2.3e-3 (W / (m K))
+    //    5.5e-6 (calories / s C^2 ) = 2.3e-3 (W / m K^2)
     let kr = if t > 500.0 {
-        let d = 2.3e-3;
-        d * (t - 500.0)
+        let c = 2.3e-3;
+        c * (t - 500.0)
     } else {
         0.0
     };
     // Schatz and Simmons, 1972, Eqn (11)
     //    z in 1000's of km, hence 1e3 for m -> km and 1e3 for 1km -> 1000km
     //    0.003 (calories / s C) = 1.255199 (W / (m K))
-    let c = 1.255199;
-    let klmin =  c * (1.0 + z /1e6);
+    let d = 1.255199;
+    let klmin =  d * (1.0 + z /1e6);
     let k = klmin + if kl > kr { kl } else { kr };
     k * WPMK
 }
 
 /// Temperature in Celsius
 #[derive(Copy,Clone,PartialEq)]
-pub struct Celsius {
+struct Celsius {
     /// Temperature in Celsius
     v: f64
 }
@@ -510,9 +757,8 @@ mod tests {
         println!("k: {:?} {:?} a0: {:?}", k, z,  a0);
     }
     #[test]
-    fn layer_test() {
+    fn layer_test() -> Result<(), crate::GeothermError> {
         // Test using South Eastern Australia from Faul and Jackson, 2005, Table 2
-        //
         use crate::Celsius;
         use crate::ContinentalLayer as Layer;
         use dim::si::{K,M,W,M3,M2};
@@ -529,10 +775,11 @@ mod tests {
         let ma = crate::Adiabat::from_tp(C!(1300.0));
 
         for (&zi,&ti) in z.iter().zip(t.iter()) {
-            let tp = ma.t(zi);
+            let tp = ma.t(zi)?;
             let t1 = if tp < ti { tp } else { ti };
             println!("{:?} {:?} -- {:?}", zi, Celsius::from(t1), Celsius::from(ti));
         }
+        Ok(())
     }
     #[test]
     fn dalton_and_faul_2010_fig8a() {
@@ -547,7 +794,7 @@ mod tests {
         gt.add_layer( 80. * km, 3.0 * W/(M*K), 0.010e-6 * W/M3);
         gt.add_layer(280. * km, 3.0 * W/(M*K), 0.084e-6 * W/M3);
 
-        let (z0,t0) = read_tz("Q45.csv");
+        let (z0,t0) = read_tz("test/Q45.csv");
         //let mut out = String::new();
         for (z,t) in z0.iter().zip(t0.iter()) {
             let d = *z * km;
@@ -573,7 +820,7 @@ mod tests {
         let z = 0.0 * dim::si::M;
         for (t,k) in kt.iter() {
             let t = C!(*t);
-            assert_eq!(crate::kT(t.into(), z), *k * dim::si::WPMK);
+            assert_eq!(crate::kappa_mantle_jm99(t.into(), z), *k * dim::si::WPMK);
         }
 
     }
@@ -591,7 +838,8 @@ mod tests {
     }
 
     #[test]
-    fn faul_2005_fig5a() {
+    fn faul_2005_fig5a() -> Result<(), crate::GeothermError> {
+        use crate::Celsius;
         use crate::OceanicGeotherm as OG;
         let km = 1000.0 * dim::si::M;
         let tp = C!(1350.0);
@@ -602,10 +850,12 @@ mod tests {
             .map(|x| OG::from_tp_and_age(tp, x.clone())).collect();
         for z in (0 ..= 400_i32).step_by(25) {
             let d = z as f64 * km;
-            let t = abat.t(d);
-            let ts : Vec<_> = ogt.iter().map(|g| Celsius::from(g.t(d)) ).collect();
+            let t = abat.t(d)?;
+            let ts : Result<Vec<_>,_> = ogt.iter().map(|g| g.t(d) ).collect();
+            let ts : Vec<_> = ts?.iter().map(|x| Celsius::from(*x)).collect();
             println!("z,t: {:.4?} {:.4?} {:.4} ", d, ts, Celsius::from(t));
         }
+        Ok(())
     }
     #[test]
     fn faul_2005_fig7a_ocean() {
@@ -614,11 +864,11 @@ mod tests {
         let tp = C!(1300.0);
         let age = 35.0 * crate::MA;
         let ogt = OG::from_tp_and_age(tp, age);
-        let (z0,t0) = read_tz("Ocean.csv");
+        let (z0,t0) = read_tz("test/Ocean.csv");
 
         for (z,t) in z0.iter().zip(t0.iter()) {
             let d = *z * km;
-            let t2 = Celsius::from( ogt.t(d) );
+            let t2 = Celsius::from( ogt.t(d).unwrap() );
             assert!((t - *t2).abs() < 10.0, "{} != {} depth: {}", t, t2, z);
         }
     }
@@ -638,7 +888,7 @@ mod tests {
         let thick = (400.0 * km - hm) / n as f64;
         dbg!(thick);
         for _ in 0 .. n {
-            cgt.add_layer_kfun(thick, rHm, crate::kT);
+            cgt.add_layer_kfun(thick, rHm, crate::kappa_mantle_jm99);
         }
 
         // Check Mantle Values
@@ -654,16 +904,16 @@ mod tests {
         let q = cgt.q(zl).unwrap();
         assert!((q-q0).abs() < 1e-5 * dim::si::WPM2, "{} != {}", q, q0);
 
-        let (z0,t0) = read_tz("Yilgarn.csv");
+        let (z0,t0) = read_tz("test/Yilgarn.csv");
 
-        let mut out = String::new();
+        //let mut out = String::new();
         for (z,t) in z0.iter().zip(t0.iter()) {
             let d = *z * km;
             let t2 = Celsius::from( cgt.t(d).unwrap() );
             assert!((t - *t2).abs() < 37.0, "{} != {} depth: {} diff: {}", t, t2, z, (t-*t2).abs());
-            out += &format!("{} {} {}\n", z, t, *t2);
+            //out += &format!("{} {} {}\n", z, t, *t2);
         }
-        std::fs::write("ad.txt", out).unwrap();
+        //std::fs::write("ad.txt", out).unwrap();
     }
     #[test]
     fn faul_2005_fig7a_se_aus() {
@@ -693,7 +943,7 @@ mod tests {
         let q = cgt.q(zl).unwrap();
         assert!((q-q0).abs() < 1e-5 * dim::si::WPM2, "{} != {}", q, q0);
 
-        let (z0,t0) = read_tz("SEAus.csv");
+        let (z0,t0) = read_tz("test/SEAus.csv");
 
         //let mut out = String::new();
         for (z,t) in z0.iter().zip(t0.iter()) {
@@ -723,7 +973,7 @@ mod tests {
         let thick = (500.0 * km - hm) / n as f64;
         dbg!(thick);
         for _ in 0 .. n {
-            cgt.add_layer_kfun(thick, rHm, crate::kT);
+            cgt.add_layer_kfun(thick, rHm, crate::kappa_mantle_jm99);
         }
 
         assert!( (*Celsius::from(cgt.t(huc).unwrap())- 273.528).abs() < 0.2);
@@ -738,7 +988,7 @@ mod tests {
         let q0 = 0.9e-3 * dim::si::WPM2;
         assert!( (q - q0).abs() < 1e-3 * dim::si::WPM2 , "{} != {} diff {}", q, q0, (q-q0).abs());
 
-        let (z0,t0) = read_tz("NAus.csv");
+        let (z0,t0) = read_tz("test/NAus.csv");
 
         //let mut out = String::new();
         for (z,t) in z0.iter().zip(t0.iter()) {
@@ -751,19 +1001,20 @@ mod tests {
     }
 
     #[test]
-    fn faul_2005_fig4a_adiabat() {
+    fn faul_2005_fig4a_adiabat() -> Result<(), crate::GeothermError> {
         use std::fs::read_to_string;
         use crate::Celsius;
         use dim::si::M;
         let km = 1000.0 * M;
         let tp = C!(1300.0);
         let abat = crate::Adiabat::from_tp(tp);
-        let (z0,t0) = read_tz("Adiabat.csv");
+        let (z0,t0) = read_tz("test/Adiabat.csv");
         for (z,t) in z0.iter().zip(t0.iter()) {
             let d = *z * km;
-            let ta = Celsius::from( abat.t(d) );
+            let ta = Celsius::from( abat.t(d)? );
             assert!((t-*ta).abs() < 7.0, "{} != {} at {}", t, ta, z);
         }
+        Ok(())
     }
     #[test]
     fn parse() {
@@ -784,10 +1035,11 @@ mod tests {
     fn geotherm_either() {
         use crate::GeothermBuilder;
         let txt = r#"
+type = "Oceanic"
 tp  = "1300 C"
 age = "100.0 Ma"
 "#;
-        let b : GeothermBuilder = toml::from_str(&txt).unwrap();
+        let _b : GeothermBuilder = toml::from_str(&txt).unwrap();
     }
     
     #[test]
@@ -845,24 +1097,111 @@ struct GeothermLayerBuilder {
     rh: HeatGenerationB,
     k: KTypeB,
 }
+/// Constructor for a `ContinentalGeotherm`
+///
+/// This is the preferred method of creating a continental geotherm
+///   as the model description is stored in a file and documented
+///   with associated units
+///
+/// ```rust
+/// use toml;
+/// use dimensioned::si::{M,K};
+/// use geotherm::Geotherm;
+/// let g = Geotherm::from_file("test/dalton_q45.toml").unwrap();
+/// assert_eq!(g.t(0.0 * M).unwrap(),   (25.0 + 273.15) * K);
+/// assert_eq!(g.t(100e3 * M).unwrap(), 1213.9499999999998 * K);
+/// ```
 #[derive(Debug, Deserialize)]
-pub struct ContinentalGeothermBuilder {
+struct ContinentalGeothermBuilder {
     ts: KelvinB,
     heat_flow: HeatFluxB,
     layers: Vec<GeothermLayerBuilder>,
 }
 
+/// Constructor for a `OceanicGeoterm`
+///
+/// This is the preferred method of creating a oceanic geotherm
+///   as the model description is stored in a file and documented
+///   with associated units
+///
 #[derive(Debug, Deserialize)]
-pub struct OceanicGeothermBuilder {
+struct OceanicGeothermBuilder {
     tp: KelvinB,
     age: SecondB,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
-pub enum GeothermBuilder {
+enum GeothermBuilder {
     Continental(ContinentalGeothermBuilder),
-    Ocean(OceanicGeothermBuilder),
+    Oceanic(OceanicGeothermBuilder),
+}
+
+/// Geotherm Error Wrapper
+#[derive(Debug)]
+pub enum GeothermError {
+    /// Error reading file
+    Io(std::io::Error),
+    /// Error parsing geotherm toml file
+    Parse(toml::de::Error),
+    /// Depth within geotherm is invalud
+    InvalidDepth,
+}
+impl From<std::io::Error> for GeothermError {
+    fn from(err: std::io::Error) -> Self {
+        GeothermError::Io(err)
+    }
+}
+impl From<toml::de::Error> for GeothermError {
+    fn from(err: toml::de::Error) -> Self {
+        GeothermError::Parse(err)
+    }
+}
+
+/// Oceanic and Continental Geotherms 
+///
+/// ## Example
+/// ```rust
+/// use dimensioned::si::{M,K};
+///
+/// let g = geotherm::Geotherm::from_file("test/oceanic_100Ma.toml").unwrap();
+/// assert_eq!(g.t(0.0 * M).unwrap(), (0.0 + 273.15) * K);
+/// assert_eq!(g.t(100e3 * M).unwrap(), 1328.8354705757051 * K);
+/// ```
+#[derive(Debug)]
+pub enum Geotherm {
+    Continental(ContinentalGeotherm),
+    Oceanic(OceanicGeotherm),
+}
+
+impl Geotherm {
+    pub fn from_file<P: AsRef<Path>>(file: P) -> Result<Geotherm, GeothermError> {
+        let b = GeothermBuilder::from_file(file)?;
+        Ok(b.build())
+    }
+    pub fn t(&self, z: Meter<f64>) -> Result<Kelvin<f64>, GeothermError> {
+        match self {
+            Geotherm::Oceanic(g)     => g.t(z),
+            Geotherm::Continental(g) => g.t(z)
+        }
+    }
+}
+
+
+use std::path::Path;
+impl GeothermBuilder {
+    /// Read a Geotherm from a toml File
+    pub fn from_file<P: AsRef<Path>>(file: P) -> Result<GeothermBuilder,GeothermError> {
+        let txt = std::fs::read_to_string(file)?;
+        let b = toml::from_str(&txt)?;
+        Ok(b)
+    }
+    pub fn build(self) -> Geotherm {
+        match self {
+            GeothermBuilder::Oceanic(g) => Geotherm::Oceanic(g.build()),
+            GeothermBuilder::Continental(g) => Geotherm::Continental(g.build()),
+        }
+    }
 }
 
 impl OceanicGeothermBuilder {
@@ -883,10 +1222,10 @@ impl ContinentalGeothermBuilder {
                 KTypeB::Constant(v) => cgt.add_layer(thick, **v, *layer.rh),
                 KTypeB::Func(name) => {
                     let fun = match name.as_str() {
-                        "Jaupart_Mareschal_1999_Eq3" => kT,
-                        "Schartz_Simmons_1972" => kmantle,
-                        "Chapman_1986_Upper_Crust" => kcrust1,
-                        "Chapman_1986_Lower_Crust" => kcrust2,
+                        "Jaupart_Mareschal_1999_Eq3" => kappa_mantle_jm99,
+                        "Schartz_Simmons_1972" => kappa_mantle_ss72,
+                        "Chapman_1986_Upper_Crust" => kappa_upper_crust_c86,
+                        "Chapman_1986_Lower_Crust" => kappa_lower_crust_c86,
                         _ => panic!("Unknown Conductivity Function {}", name),
                     };
                     let min_thick = 3.0 * km; // kilometers
@@ -973,7 +1312,7 @@ macro_rules! unit_serde {
 }
 
 #[derive(Debug,PartialEq)]
-pub enum UnitParseError {
+enum UnitParseError {
     Float(ParseFloatError),
     NoValue,
     NoUnits,
@@ -1008,3 +1347,4 @@ unit_serde!(SecondB, SecondBVisitor, Second<f64>,
             "Ma", {|v| v * crate::MA },
             "Ga", {|v| v * crate::GA }
 );
+
