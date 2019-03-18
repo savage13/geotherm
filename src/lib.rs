@@ -401,16 +401,16 @@ impl ContinentalGeotherm {
 /// Construction of this geotherm with depth is based on
 /// Faul and Jackson, 2005, Eqn. 17
 ///
-/// <!--  $T(z) = T_s + (T_{ad} - T_{s}) \textrm{erf} \left( \dfrac{z}{2\sqrt{\kappa t}}\right)$ -->
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mrow><mi>T</mi><mrow><mo form="prefix">(</mo><mi>z</mi><mo form="postfix">)</mo></mrow><mo>=</mo><msub><mi>T</mi><mi>s</mi></msub><mo>+</mo><mrow><mo form="prefix">(</mo><msub><mi>T</mi><mrow><mi>a</mi><mi>d</mi></mrow></msub><mo>-</mo><msub><mi>T</mi><mi>s</mi></msub><mo form="postfix">)</mo></mrow><mstyle mathvariant="normal"><mi>e</mi><mi>r</mi><mi>f</mi></mstyle><mrow><mo rspace="0.3em" lspace="0em" stretchy="true" fence="true" form="prefix">(</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mi>z</mi><mrow><mn>2</mn><msqrt><mrow><mi>&#x003BA;</mi><mi>t</mi></mrow></msqrt></mrow></mfrac></mrow></mstyle><mo rspace="0em" lspace="0.3em" stretchy="true" fence="true" form="postfix">)</mo></mrow></mrow></math>
+///
+/// $$ T(z) = T_s + (T_{ad} - T_s) \mathrm{erf} \left ( \dfrac{z}{2\sqrt{\kappa t}} \right)  $$
 ///
 /// where
 ///
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mi>s</mi></msub></math> is the surface Temperature
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mrow><mi>a</mi><mi>d</mi></mrow></msub></math> is the Mantle Adiabatic Temperature
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>z</mi></math> is depth in meters
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>&#x3BA;</mi></math> is the Thermal Diffusivity
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>t</mi></math> is the age in seconds
+/// - $ T_s    $ is the surface Temperature
+/// - $ T_{ad} $ is the Mantle Adiabatic Temperature
+/// - $ z      $ is depth in meters
+/// - $ \kappa $ is the Thermal Diffusivity
+/// - $ t      $ is the age in seconds
 ///
 ///
 /// ## References
@@ -437,9 +437,9 @@ impl OceanicGeotherm {
     /// Create a new Oceanic Geotherm from a Mantle Potential Temperature `tp`
     /// and an `age` of the lithosphere
     ///
-    /// Surface Temperature, <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mi>s</mi></msub></math>, is set to <math xmlns="http://www.w3.org/1998/Math/MathML"><mn>0</mn><mo>&#xB0;</mo><mi>C</mi></math>
+    /// Surface Temperature, $T_s$, is set to $0^\circ C$
     ///
-    /// Thermal Diffusivity, <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>&#x3BA;</mi></math>, is set at <math xmlns="http://www.w3.org/1998/Math/MathML"><mn>10</mn><mo>.</mo><mn>0</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>7</mn></mrow></msup><msup><mi>m</mi><mn>2</mn></msup><msup><mi>s</mi><mrow><mo>-</mo><mn>1</mn></mrow></msup></math>.
+    /// Thermal Diffusivity, $\kappa$, is set at $ 10.0 \times 10^{-7} m^2 s^{-1}$.
     ///
     /// Diffusivity value is derived from the lower temperature estimate of Gibert et al., 2003, Fig. 6.
     ///
@@ -481,8 +481,9 @@ impl OceanicGeotherm {
 ///
 /// This follows from Faul and Jackson, 2005 Eqn. 15
 ///
-/// <!-- $\dfrac{dT}{dz} = \dfrac{T_p * \alpha * g}{c_p}$ -->
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mrow><mstyle scriptlevel="0" displaystyle="true" display="block"><mrow><mfrac linethickness="1"><mrow><mi>dT</mi></mrow><mrow><mi>dz</mi></mrow></mfrac></mrow></mstyle><mo>=</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><msub><mi>T</mi><mi>p</mi></msub><mi>&#x003B1;</mi><mi>g</mi></mrow><mrow><msub><mi>c</mi><mi>p</mi></msub></mrow></mfrac></mrow></mstyle></mrow></math>
+///
+/// \\[ \dfrac{dT}{dz} = \dfrac{T_p \alpha g}{c_p} \\]
+///
 ///
 /// ## References
 ///  - Faul, U. H., and I. Jackson (2005), The seismological signature of temperature and grain size variations in the upper mantle, Earth Planet. Sci. Lett., 234(1-2), 119–134.
@@ -544,18 +545,19 @@ impl Adiabat {
 /// ## Method
 /// From Jaupart and Mareschal 1999, Eqn 3
 ///
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>k</mi><mo>(</mo><mi>T</mi><mo>)</mo><mo>=</mo><mfrac><mn>1</mn><mrow><mi>a</mi><mo>+</mo><mi>b</mi><mi>T</mi></mrow></mfrac><mo>+</mo><mi>c</mi><msup><mi>T</mi><mn>3</mn></msup></math>
+/// $$ k(T) = \dfrac{1}{a + bT} + c T^3 $$
 ///
 /// where
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>a</mi></math> = 0.174
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>b</mi></math> = 0.000265
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>c</mi></math> = <math xmlns="http://www.w3.org/1998/Math/MathML"><mn>3</mn><mo>.</mo><mn>68</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>10</mn></mrow></msup></math>
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>T</mi></math> is the temperature measured in Kelvin
+/// - $ a  = 0.174     $
+/// - $ b  = 0.000265  $
+/// - $c = 3.68 \times 10^{-10} $
+/// - $ T $ is the temperature measured in Kelvin
 ///
-/// The depth value `z` is unused in this formulation
+/// The depth value $ z $ is unused in this formulation
 ///
 /// ## References
 ///   Jaupart, C., and J. Mareschal (1999), The thermal structure and thickness of continental roots, in Developments in Geotectonics, vol. 24, pp. 93–114, Elsevier.
+///
 pub fn kappa_mantle_jm99(t: Kelvin<f64>, _z: Meter<f64>) -> Conductivity<f64> {
     let t = t.value_unsafe;
     let k = 1.0 / (0.174 + 0.000265 * t) + 3.68e-10 * t.powi(3);
@@ -589,17 +591,12 @@ fn kcrust(t: Kelvin<f64>, z: Meter<f64>, k0: f64, b: f64) -> Conductivity<f64> {
 /// Conductivity is calculated using the equation below where `t` Temperature is in Celcius and
 /// `z` is in meters.  Values are automatically converted to the correct units
 ///
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\dfrac{1+cz}{1+bz}" display="block">
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\frac{1+cz}{1+bz}" display="block">
-/// <mrow> <mrow> <mi>k</mi> <mo>⁢</mo> <mrow> <mo stretchy="false">(</mo> <mi>T</mi> <mo>,</mo> <mi>z</mi> <mo stretchy="false">)</mo> </mrow> </mrow> <mo>=</mo> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>⁢</mo> <mfrac> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>c</mi> <mo>⁢</mo> <mi>z</mi> </mrow> </mrow> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>b</mi> <mo>⁢</mo> <mi>T</mi> </mrow> </mrow> </mfrac> </mrow> </mrow></math></math>
+/// $$ k(T,z) = k_0 \dfrac{1+cz}{1+bT} $$
 ///
 /// where
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k_{0}=3.0\;Wm^{-1}K^{-1}" display="inline"> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>=</mo> <mrow> <mpadded width="+2.8pt"> <mn>3.0</mn> </mpadded> <mo>⁢</mo> <mi>W</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
-///
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="b=1.5\times 10^{-3}\;K^{-1}" display="inline"> <mrow> <mi>b</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
-///
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="c=1.5\times 10^{-3}\;km^{-1}" display="inline"> <mrow> <mi>c</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <mi>k</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
-///
+/// - $k_0  = 3.0 W m^{-1} K^{-1} $
+/// - $b = 1.5 \times 10^{-3} K^{-1} $
+/// - $c = 1.5 \times 10^{-3} km^{-1} $
 ///
 /// ## Reference
 /// Chapman, D. Thermal gradients in the continental crust. Geological Society,
@@ -619,18 +616,14 @@ pub fn kappa_upper_crust_c86(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64>
 /// Conductivity is calculated using the equation below where `t` Temperature is in Celcius and
 /// `z` is in meters.  Values are automatically converted to the correct units
 ///
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\dfrac{1+cz}{1+bz}" display="block">
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k(T,z)=k_{0}\frac{1+cz}{1+bz}" display="block">
-/// <mrow> <mrow> <mi>k</mi> <mo>⁢</mo> <mrow> <mo stretchy="false">(</mo> <mi>T</mi> <mo>,</mo> <mi>z</mi> <mo stretchy="false">)</mo> </mrow> </mrow> <mo>=</mo> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>⁢</mo> <mfrac> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>c</mi> <mo>⁢</mo> <mi>z</mi> </mrow> </mrow> <mrow> <mn>1</mn> <mo>+</mo> <mrow> <mi>b</mi> <mo>⁢</mo> <mi>T</mi> </mrow> </mrow> </mfrac> </mrow> </mrow></math></math>
+/// $$ k(T,z) = k_0 \dfrac{1+cz}{1+bT} $$
 ///
 /// where
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="k_{0}=2.6\;Wm^{-1}K^{-1}" display="inline"> <mrow> <msub> <mi>k</mi> <mn>0</mn> </msub> <mo>=</mo> <mrow> <mpadded width="+2.8pt"> <mn>2.6</mn> </mpadded> <mo>⁢</mo> <mi>W</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
 ///
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="b=1.0\times 10^{-4}\;K^{-1}" display="inline"> <mrow> <mi>b</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <msup> <mi>K</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
+/// - $k_0  = 2.6 W m^{-1} K^{-1} $
+/// - $b = 1.0 \times 10^{-4} K^{-1} $
+/// - $c = 1.5 \times 10^{-3} km^{-1} $
 ///
-/// <?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="c=1.5\times 10^{-3}\;km^{-1}" display="inline"> <mrow> <mi>c</mi> <mo>=</mo> <mrow> <mrow> <mn>1.5</mn> <mo>×</mo> <mpadded width="+2.8pt"> <msup> <mn>10</mn> <mrow> <mo>-</mo> <mn>3</mn> </mrow> </msup> </mpadded> </mrow> <mo>⁢</mo> <mi>k</mi> <mo>⁢</mo> <msup> <mi>m</mi> <mrow> <mo>-</mo> <mn>1</mn> </mrow> </msup> </mrow> </mrow></math></math><br/>
-///
-/// 
 /// ## Reference
 /// Chapman, D. Thermal gradients in the continental crust. Geological Society,
 ///    London, Special Publications, 24(1):63–70, 1986.

@@ -8,9 +8,13 @@ description = "Geotherm Calculator"
 repository = "https://github.com/savge13/geotherm"
 homepage = "https://github.com/savge13/geotherm"
 documentation = "https://github.com/savge13/geotherm"
-
+# rustdocflags = ["--html-in-header", "katex-header.html"]
 
 [dependencies]
 dimensioned = "0.7.0"
 toml = "0.4"
 serde = {version = "1.0.60", features = ["derive"]}
+
+[package.metadata.docs.rs]
+rustdoc-args = [ "--html-in-header", "katex-header.html" ]
+
