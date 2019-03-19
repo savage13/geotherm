@@ -642,12 +642,14 @@ pub fn kappa_lower_crust_c86(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64>
 ///
 /// Uses Schatz and Simmons (1972) Eqs 9, 10, and 11
 ///
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>K</mi><mi>L</mi></msub><mo>=</mo><mfrac><mn>1</mn><mrow><mo>(</mo><mi>a</mi><mo>+</mo><mi>b</mi><mi>T</mi><mo>)</mo></mrow></mfrac></math>
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>K</mi><mi>R</mi></msub><mo>&#xA0;</mo><mo>=</mo><mo>&#xA0;</mo><mfenced open="{" close=""><mtable columnspacing="1.4ex" columnalign="left"><mtr><mtd><mn>0</mn></mtd><mtd><mi>T</mi><mo>&lt;</mo><mn>500</mn><mi>K</mi></mtd></mtr><mtr><mtd><mi>c</mi><mo>(</mo><mn>500</mn><mo>-</mo><mi>T</mi><mo>)</mo></mtd><mtd><mi>T</mi><mo>&#x2265;</mo><mn>500</mn><mi>K</mi></mtd></mtr></mtable></mfenced></math>
+/// $$ K_L = \dfrac{1}{a+bT} $$
 ///
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><msub><mi>K</mi><mi>L</mi></msub><mrow><mi>m</mi><mi>i</mi><mi>n</mi></mrow></msub><mo>=</mo><mi>d</mi><mo>(</mo><mn>1</mn><mo>+</mo><mi>z</mi><mo>)</mo></math>
+/// $$ K_R =  \begin{cases}  0 & \text{if }  T < 500K \\\\  c (500 - T) & \text{if } T \ge 500 K \end{cases} $$
 ///
-///<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>k</mi><mo>(</mo><mi>T</mi><mo>,</mo><mi>z</mi><mo>)</mo><mo>=</mo><msub><mi>K</mi><mi>R</mi></msub><mo>+</mo><mtext>max</mtext><mo>(</mo><msub><mi>K</mi><mi>L</mi></msub><mo>,</mo><msub><msub><mi>K</mi><mi>L</mi></msub><mrow><mi>m</mi><mi>i</mi><mi>n</mi></mrow></msub><mo>)</mo></math>
+/// $$ K_{Lmin} = d (1+z) $$
+///
+/// $$ k(T,z) = K_R + \text{max}(K_L,K_{Lmin}) $$
+///
 ///
 /// where
 /// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>a</mi><mo>=</mo><mn>7</mn><mo>.</mo><mn>409177</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>2</mn></mrow></msup><mo>&#xA0;</mo><mi>m</mi><mi>K</mi><mo>/</mo><mi>W</mi></math>
