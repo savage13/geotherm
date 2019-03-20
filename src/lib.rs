@@ -27,8 +27,9 @@ extern crate dimensioned as dim;
 
 use serde::Deserialize;
 
-pub mod erf;
+mod erf;
 use erf::ErrorFunction;
+mod fad;
 
 /// Create a simple Unit Newtype for doing Unit Conversions
 ///
@@ -171,20 +172,20 @@ struct ContinentalLayer {
 /// Construction of a continental geother with depth based on
 ///  Faul and Jackson (2005) and Chapman (1986)
 ///
-/// <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>T</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>=</mo><msub><mi>T</mi><mi>i</mi></msub><mo>+</mo><mfrac><msub><mi>q</mi><mi>i</mi></msub><msub><mi>k</mi><mi>i</mi></msub></mfrac><mi>&#x394;</mi><mi>z</mi><mo>-</mo><mfrac><mi>A</mi><mrow><mn>2</mn><msub><mi>k</mi><mi>i</mi></msub></mrow></mfrac><mi>&#x394;</mi><msup><mi>z</mi><mn>2</mn></msup></math>
+/// $$ T_{i+1} = T_i + \dfrac{q_i}{k_i}\Delta z - \dfrac{A}{2k_i}\Delta z^2 $$
 ///
-/// and
-///  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>q</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>=</mo><msub><mi>q</mi><mi>i</mi></msub><mo>-</mo><mi>A</mi><mi>&#x394;</mi><mi>z</mi></math>
+/// $$ q_{i+1} = q_i - A \Delta z $$
 ///
 /// where
 ///
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mi>i</mi></msub></math> is the Temperature at the top a layer
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub></math> is the Temperature at the bottom of the layer
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>q</mi><mi>i</mi></msub></math> is the Heat flow at the top of the layer
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>q</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub></math> is the heat flow at the bottom of the layer
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>k</mi><mi>i</mi></msub></math> is the Thermal Conductivity within the layer and is assumed constant
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>A</mi></math> is the Heat Generation within the layer
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>&#x394;</mi><mi>z</mi></math> is the thickness of the layer
+/// - $T_i$  is the Temperature at the top a layer
+/// - $T_{i+1}$ is the Temperature at the bottom of the layer
+/// - $q_i$ is the Heat flow at the top of the layer
+/// - $q_{i+1}$ is the heat flow at the bottom of the layer
+/// - $k_i$ is the Thermal Conductivity within the layer and is assumed constant
+/// - $A$ is the Heat Generation within the layer
+/// - $\Delta z$ is the thickness of the layer
+///
 /// ## Refernces
 ///   Chapman, D. (1986), Thermal gradients in the continental crust, Geological Society, Lon- don, Special Publications, 24(1), 63–70.
 ///
@@ -227,7 +228,7 @@ impl ContinentalLayer {
     ///
     /// Following Faul and Jackson, 2005, Eqn 18.
     ///
-    /// <!-- begin MathToWeb --><!-- (your LaTeX) $T_b = T_t + \dfrac{q_t}{k}\Delta z - \dfrac{\rho H}{2k}\Delta z^2$ --><math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><msub><mi>T</mi><mi>b</mi></msub><mo>=</mo><msub><mi>T</mi><mi>t</mi></msub><mo>+</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><msub><mi>q</mi><mi>t</mi></msub></mrow><mi>k</mi></mfrac></mrow></mstyle><mi>&#x00394;</mi><mi>z</mi><mo>-</mo><mstyle scriptlevel="0" displaystyle="true"><mrow><mfrac linethickness="1"><mrow><mi>&#x003C1;</mi><mi>H</mi></mrow><mrow><mn>2</mn><mi>k</mi></mrow></mfrac></mrow></mstyle><mi>&#x00394;</mi><msup><mi>z</mi><mn>2</mn></msup></mrow></math><!-- end MathToWeb -->
+    /// $$ T_b = T_t + \dfrac{q_t}{k}\Delta z - \dfrac{\rho H}{2k}\Delta z^2 $$
     ///
     pub fn t(&self, z: Meter<f64>) -> Result<Kelvin<f64>,GeothermError> {
         use dim::si::WPMK;
@@ -251,7 +252,7 @@ impl ContinentalLayer {
     ///
     /// After Faul and Jackson, 2005, Eqn. 18 (part 2)
     ///
-    /// <!-- begin MathToWeb --><!-- (your LaTeX) $q_b = q_t - \rho H \Delta z$ --><math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><msub><mi>q</mi><mi>b</mi></msub><mo>=</mo><msub><mi>q</mi><mi>t</mi></msub><mo>-</mo><mi>&#x003C1;</mi><mi>H</mi><mi>&#x00394;</mi><mi>z</mi></mrow></math><!-- end MathToWeb -->
+    /// $$ q_b = q_t - \rho H \Delta z $$
     ///
     pub fn q(&self, z: Meter<f64>) -> Result<HeatFlux<f64>, GeothermError> {
         if ! self.within(z) {
@@ -346,7 +347,7 @@ impl ContinentalGeotherm {
     /// Compute the temperature at of the geotherm at a depth `z`
     ///
     /// Depth, `z`, values outside the defined range return `None`
-    ///  otherwise the Temperature is returned in <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>K</mi></math>
+    ///  otherwise the Temperature is returned in $K$
     ///
     pub fn t(&self, z: Meter<f64>) -> Result<Kelvin<f64>, GeothermError> {
         let layer = self.z_to_layer(z)?;
@@ -359,7 +360,7 @@ impl ContinentalGeotherm {
     /// Compute the Heat Flow at of the geotherm at a depth `z`
     ///
     /// Depth, `z`, values outside the defined range return `None`
-    ///  otherwise the Heat Flow is returned in <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>W</mi><msup><mi>m</mi><mrow><mo>-</mo><mn>2</mn></mrow></msup></math>
+    ///  otherwise the Heat Flow is returned in $W m^{-2}$
     ///
     pub fn q(&self, z: Meter<f64>) -> Result<HeatFlux<f64>, GeothermError> {
         let layer = self.z_to_layer(z)?;
@@ -402,7 +403,7 @@ impl ContinentalGeotherm {
 /// Faul and Jackson, 2005, Eqn. 17
 ///
 ///
-/// $$ T(z) = T_s + (T_{ad} - T_s) \mathrm{erf} \left ( \dfrac{z}{2\sqrt{\kappa t}} \right)  $$
+/// $$ T(z) = T_s + (T_{ad} - T_s) \text{erf} \left ( \dfrac{z}{2\sqrt{\kappa t}} \right)  $$
 ///
 /// where
 ///
@@ -652,10 +653,11 @@ pub fn kappa_lower_crust_c86(t: Kelvin<f64>, z: Meter<f64>) -> Conductivity<f64>
 ///
 ///
 /// where
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>a</mi><mo>=</mo><mn>7</mn><mo>.</mo><mn>409177</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>2</mn></mrow></msup><mo>&#xA0;</mo><mi>m</mi><mi>K</mi><mo>/</mo><mi>W</mi></math>
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>b</mi><mo>=</mo><mn>5</mn><mo>.</mo><mn>0191204</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>4</mn></mrow></msup><mo>&#xA0;</mo><mi>m</mi><mo>/</mo><mi>W</mi></math>
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>c</mi><mo>=</mo><mn>2</mn><mo>.</mo><mn>3</mn><mo>&#xD7;</mo><msup><mn>10</mn><mrow><mo>-</mo><mn>3</mn></mrow></msup><mo>&#xA0;</mo><mi>W</mi><mo>/</mo><mi>m</mi><msup><mi>K</mi><mn>2</mn></msup></math>
-/// - <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>d</mi><mo>=</mo><mn>1</mn><mo>.</mo><mn>255199</mn><mi>W</mi><mo>/</mo><mi>m</mi><mi>K</mi><mo>/</mo><mo>(</mo><mn>1000</mn><mi>k</mi><mi>m</mi><mo>)</mo></math>
+/// - $a = 7.409177\times 10^{-2} m K W^{-1}$
+/// - $b = 5.0191204\times 10^{-4} m W^{-1}$
+/// - $c = 2.3\times 10-3 W m^{-1}K^{-2} $
+/// - $d = 1.255199 Wm^{-1}K^{-1}(1000km)^{-1}$
+///
 ///
 /// ## References
 /// Schatz, J. F., and G. Simmons (1972), Thermal conductivity of earth 
